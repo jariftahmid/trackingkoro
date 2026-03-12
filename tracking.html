@@ -37,44 +37,56 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// Device ID setup
 let deviceId = document.getElementById("deviceId").value || "phone1";
-document.getElementById("deviceId").addEventListener("change",e=>{
+document.getElementById("deviceId").addEventListener("change", e=>{
   deviceId = e.target.value || "phone1";
 });
 
 // Auto start tracking
 let watchId = null;
 function startTracking(){
-  if(watchId!=null) return;
+  if(watchId != null) return;
   if(!navigator.geolocation){ alert("Geolocation not supported"); return; }
-  watchId = navigator.geolocation.watchPosition(pos=>{
-    set(ref(db, "tracker/"+deviceId), {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-      time: Date.now(),
-      online:true
-    });
-    document.getElementById("status").innerText="Tracking ON: "+pos.coords.latitude+", "+pos.coords.longitude;
-  }, {enableHighAccuracy:true});
+
+  watchId = navigator.geolocation.watchPosition(
+    function(pos){ // success callback
+      set(ref(db, "tracker/"+deviceId), {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        time: Date.now(),
+        online:true
+      });
+      document.getElementById("status").innerText = "Tracking ON: "+pos.coords.latitude+", "+pos.coords.longitude;
+    },
+    function(err){ // error callback
+      console.warn("Geolocation error:", err);
+      document.getElementById("status").innerText = "Tracking ERROR: "+err.message;
+    },
+    { enableHighAccuracy:true }
+  );
 }
 
 function stopTracking(){
-  if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
-  document.getElementById("status").innerText="Tracking OFF";
+  if(watchId != null){
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  document.getElementById("status").innerText = "Tracking OFF";
 }
 
-// Listen dashboard control optional
+// Dashboard control optional
 onValue(ref(db,"control/"+deviceId+"/tracking"), snap=>{
   const val = snap.val();
-  if(val===true) startTracking();
-  if(val===false) stopTracking();
+  if(val === true) startTracking();
+  if(val === false) stopTracking();
 });
 
-// Auto start
+// Auto start immediately
 startTracking();
 
 // Set offline when closing app
-window.addEventListener("beforeunload",()=>{
+window.addEventListener("beforeunload", ()=>{
   update(ref(db,"tracker/"+deviceId), {online:false});
 });
 </script>
