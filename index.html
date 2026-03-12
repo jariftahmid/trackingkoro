@@ -18,9 +18,9 @@ button{padding:6px 10px;margin-top:5px;}
 <div class="panel">
 Device ID: <input id="deviceId" value="phone1"><br>
 Radius KM: <input id="radius" value="1"><br>
-<button onclick="startTrack()">Start</button>
-<button onclick="stopTrack()">Stop</button>
-<button onclick="replay()">Replay</button>
+<button id="startBtn">Start</button>
+<button id="stopBtn">Stop</button>
+<button id="replayBtn">Replay</button>
 <div id="info"></div>
 </div>
 
@@ -73,41 +73,47 @@ function replay(){
   }
 }
 
-// Dashboard control
-function startTrack(){
-  const deviceId=document.getElementById("deviceId").value;
+// Button event listeners (module-safe)
+document.getElementById("startBtn").addEventListener("click", ()=>{
+  const deviceId = document.getElementById("deviceId").value;
   set(ref(db,"control/"+deviceId),{tracking:true});
-}
-function stopTrack(){
-  const deviceId=document.getElementById("deviceId").value;
+});
+
+document.getElementById("stopBtn").addEventListener("click", ()=>{
+  const deviceId = document.getElementById("deviceId").value;
   set(ref(db,"control/"+deviceId),{tracking:false});
-}
+});
+
+document.getElementById("replayBtn").addEventListener("click", replay);
 
 // Move geofence on map click
-map.on("click",e=>{
-  targetLat=e.latlng.lat; targetLng=e.latlng.lng;
+map.on("click", e=>{
+  targetLat = e.latlng.lat;
+  targetLng = e.latlng.lng;
   geofence.setLatLng(e.latlng);
 });
 
 // Listen all devices
-onValue(ref(db,"tracker"),snap=>{
+onValue(ref(db,"tracker"), snap=>{
   const devices=snap.val(); if(!devices) return;
   for(let id in devices){
-    const d=devices[id]; const pos=[d.lat,d.lng];
+    const d=devices[id]; 
+    const pos=[d.lat,d.lng];
     if(!markers[id]){
-      markers[id]=L.marker(pos).addTo(map);
-      paths[id]=L.polyline([], {color:"red"}).addTo(map);
-      historyData[id]=[];
-    }else markers[id].setLatLng(pos);
+      markers[id] = L.marker(pos).addTo(map);
+      paths[id] = L.polyline([], {color:"red"}).addTo(map);
+      historyData[id] = [];
+    } else markers[id].setLatLng(pos);
+
     historyData[id].push(pos);
     paths[id].setLatLngs(historyData[id]);
 
     // Geofence check
     const radius=parseFloat(document.getElementById("radius").value);
     geofence.setRadius(radius*1000);
-    if(distance(targetLat,targetLng,d.lat,d.lng)<radius){
+    if(distance(targetLat,targetLng,d.lat,d.lng) < radius){
       document.getElementById("alarm").play();
-      document.getElementById("info").innerText=id+" entered geofence!";
+      document.getElementById("info").innerText = id+" entered geofence!";
     }
   }
 });
