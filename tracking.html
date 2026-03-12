@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GPS Tracker Auto</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{font-family:sans-serif;background:#111;color:white;text-align:center;margin-top:100px;}
+#status{margin-top:20px;}
+input{padding:10px;margin:5px;font-size:16px;}
+</style>
+</head>
+
+<body>
+
+<h2>GPS Tracker Auto</h2>
+<input id="deviceId" placeholder="Device ID (default: phone1)">
+<div id="status">Initializing...</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyDfFKT5y5SZ8Wl_HaRezaDVpSEmyk4H7pY",
+  authDomain: "aura-globe-735d3.firebaseapp.com",
+  databaseURL: "https://aura-globe-735d3-default-rtdb.firebaseio.com",
+  projectId: "aura-globe-735d3",
+  storageBucket: "aura-globe-735d3.firebasestorage.app",
+  messagingSenderId: "964001905585",
+  appId: "1:964001905585:web:1c52a216d056cbbdf29b90",
+  measurementId: "G-B5H5N60J61"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let deviceId = document.getElementById("deviceId").value || "phone1";
+document.getElementById("deviceId").addEventListener("change",e=>{
+  deviceId = e.target.value || "phone1";
+});
+
+// Auto start tracking
+let watchId = null;
+function startTracking(){
+  if(watchId!=null) return;
+  if(!navigator.geolocation){ alert("Geolocation not supported"); return; }
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    set(ref(db, "tracker/"+deviceId), {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      time: Date.now(),
+      online:true
+    });
+    document.getElementById("status").innerText="Tracking ON: "+pos.coords.latitude+", "+pos.coords.longitude;
+  }, {enableHighAccuracy:true});
+}
+
+function stopTracking(){
+  if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+  document.getElementById("status").innerText="Tracking OFF";
+}
+
+// Listen dashboard control optional
+onValue(ref(db,"control/"+deviceId+"/tracking"), snap=>{
+  const val = snap.val();
+  if(val===true) startTracking();
+  if(val===false) stopTracking();
+});
+
+// Auto start
+startTracking();
+
+// Set offline when closing app
+window.addEventListener("beforeunload",()=>{
+  update(ref(db,"tracker/"+deviceId), {online:false});
+});
+</script>
+
+</body>
+</html>
