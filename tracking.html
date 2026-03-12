@@ -4,14 +4,12 @@
 <meta charset="UTF-8">
 <title>GPS Tracker Auto</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <style>
 body{font-family:sans-serif;background:#111;color:white;text-align:center;margin-top:100px;}
 #status{margin-top:20px;}
 input{padding:10px;margin:5px;font-size:16px;}
 </style>
 </head>
-
 <body>
 
 <h2>GPS Tracker Auto</h2>
@@ -37,21 +35,19 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Device ID setup
 let deviceId = document.getElementById("deviceId").value || "phone1";
 document.getElementById("deviceId").addEventListener("change", e=>{
   deviceId = e.target.value || "phone1";
+  initControlListener();
 });
 
-// Auto start tracking
 let watchId = null;
 function startTracking(){
-  if(watchId != null) return;
+  if(watchId!=null) return;
   if(!navigator.geolocation){ alert("Geolocation not supported"); return; }
-
   watchId = navigator.geolocation.watchPosition(
-    function(pos){ // success callback
-      set(ref(db, "tracker/"+deviceId), {
+    pos=>{
+      set(ref(db,"tracker/"+deviceId),{
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         time: Date.now(),
@@ -59,31 +55,33 @@ function startTracking(){
       });
       document.getElementById("status").innerText = "Tracking ON: "+pos.coords.latitude+", "+pos.coords.longitude;
     },
-    function(err){ // error callback
+    err=>{
       console.warn("Geolocation error:", err);
       document.getElementById("status").innerText = "Tracking ERROR: "+err.message;
     },
     { enableHighAccuracy:true }
   );
 }
-
 function stopTracking(){
-  if(watchId != null){
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-  }
-  document.getElementById("status").innerText = "Tracking OFF";
+  if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+  document.getElementById("status").innerText="Tracking OFF";
 }
 
-// Dashboard control optional
-onValue(ref(db,"control/"+deviceId+"/tracking"), snap=>{
-  const val = snap.val();
-  if(val === true) startTracking();
-  if(val === false) stopTracking();
-});
+// Dashboard control listener
+let controlListener = null;
+function initControlListener(){
+  if(controlListener) controlListener(); // unsubscribe old listener
+  const controlRef = ref(db,"control/"+deviceId+"/tracking");
+  controlListener = onValue(controlRef, snap=>{
+    const val = snap.val();
+    if(val === true) startTracking();
+    if(val === false) stopTracking();
+  });
+}
 
-// Auto start immediately
+// Auto-start
 startTracking();
+initControlListener();
 
 // Set offline when closing app
 window.addEventListener("beforeunload", ()=>{

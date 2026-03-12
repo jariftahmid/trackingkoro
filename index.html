@@ -73,17 +73,15 @@ function replay(){
   }
 }
 
-// Button event listeners (module-safe)
+// Buttons
 document.getElementById("startBtn").addEventListener("click", ()=>{
   const deviceId = document.getElementById("deviceId").value;
   set(ref(db,"control/"+deviceId),{tracking:true});
 });
-
 document.getElementById("stopBtn").addEventListener("click", ()=>{
   const deviceId = document.getElementById("deviceId").value;
   set(ref(db,"control/"+deviceId),{tracking:false});
 });
-
 document.getElementById("replayBtn").addEventListener("click", replay);
 
 // Move geofence on map click
@@ -95,9 +93,9 @@ map.on("click", e=>{
 
 // Listen all devices
 onValue(ref(db,"tracker"), snap=>{
-  const devices=snap.val(); if(!devices) return;
+  const devices = snap.val(); if(!devices) return;
   for(let id in devices){
-    const d=devices[id]; 
+    const d = devices[id]; 
     const pos=[d.lat,d.lng];
     if(!markers[id]){
       markers[id] = L.marker(pos).addTo(map);
@@ -109,7 +107,7 @@ onValue(ref(db,"tracker"), snap=>{
     paths[id].setLatLngs(historyData[id]);
 
     // Geofence check
-    const radius=parseFloat(document.getElementById("radius").value);
+    const radius = parseFloat(document.getElementById("radius").value);
     geofence.setRadius(radius*1000);
     if(distance(targetLat,targetLng,d.lat,d.lng) < radius){
       document.getElementById("alarm").play();
@@ -117,7 +115,6 @@ onValue(ref(db,"tracker"), snap=>{
     }
   }
 });
-
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body>
