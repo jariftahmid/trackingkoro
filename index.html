@@ -2,120 +2,184 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Tracker Dashboard Auto</title>
+<title>Smart Tracker Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
 <style>
 body{margin:0;font-family:sans-serif;background:#000;color:white;}
 #map{height:100vh;}
-.panel{position:absolute;top:10px;left:10px;background:#111;padding:12px;border-radius:8px;z-index:999;}
-input{padding:6px;width:70px;margin-top:5px;}
-button{padding:6px 10px;margin-top:5px;}
+
+.panel{
+  position:absolute;top:10px;left:10px;
+  background:#111;padding:12px;border-radius:10px;
+  z-index:999;width:200px;
+}
+
+select,input,button{
+  width:100%;padding:6px;margin-top:5px;
+  border:none;border-radius:5px;
+}
+
+#details{margin-top:8px;font-size:13px;}
 </style>
 </head>
 <body>
 
 <div class="panel">
-Device ID: <input id="deviceId" value="phone1"><br>
-Radius KM: <input id="radius" value="1"><br>
+
+<select id="deviceSelect"></select>
+
+<select id="radius">
+  <option value="0.1">100 Meter</option>
+  <option value="0.5">500 Meter</option>
+  <option value="1">1 KM</option>
+  <option value="2">2 KM</option>
+</select>
+
 <button id="startBtn">Start</button>
 <button id="stopBtn">Stop</button>
 <button id="replayBtn">Replay</button>
+
+<div id="details"></div>
 <div id="info"></div>
+
 </div>
 
 <div id="map"></div>
-<audio id="alarm"><source src="https://www.soundjay.com/free-music_c2026/sounds/midnight-ride-01a.mp3" type="audio/mpeg"></audio>
+
+<audio id="alarm">
+<source src="https://www.soundjay.com/free-music_c2026/sounds/midnight-ride-01a.mp3">
+</audio>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
 
-// Firebase config
-const firebaseConfig = {
-  apiKey: "AIzaSyDfFKT5y5SZ8Wl_HaRezaDVpSEmyk4H7pY",
-  authDomain: "aura-globe-735d3.firebaseapp.com",
-  databaseURL: "https://aura-globe-735d3-default-rtdb.firebaseio.com",
-  projectId: "aura-globe-735d3",
-  storageBucket: "aura-globe-735d3.firebasestorage.app",
-  messagingSenderId: "964001905585",
-  appId: "1:964001905585:web:1c52a216d056cbbdf29b90",
-  measurementId: "G-B5H5N60J61"
-};
+const firebaseConfig = { /* SAME CONFIG */ };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Leaflet map
+// MAP
 let map = L.map('map').setView([23.8103,90.4125],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 
-let markers={}, paths={}, historyData={};
-let geofence=L.circle([23.8103,90.4125],{radius:1000,color:"green"}).addTo(map);
-let targetLat=23.8103,targetLng=90.4125;
+// DATA
+let markers={}, historyData={}, selectedDevice=null;
+let myLat=null, myLng=null;
 
-// Distance helper
+// DISTANCE
 function distance(lat1,lon1,lat2,lon2){
-  const R=6371; const dLat=(lat2-lat1)*Math.PI/180; const dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c;
+  const R=6371;
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+    Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-// Replay movement
-function replay(){
-  for(let id in historyData){
-    let route=historyData[id], marker=markers[id], i=0;
-    let interval=setInterval(()=>{
-      if(i>=route.length){clearInterval(interval);return;}
-      marker.setLatLng(route[i]);
-      i++;
-    },200);
+// 📍 YOUR LOCATION (CENTER)
+navigator.geolocation.watchPosition(pos=>{
+  myLat=pos.coords.latitude;
+  myLng=pos.coords.longitude;
+
+  if(!window.meMarker){
+    window.meMarker=L.marker([myLat,myLng]).addTo(map).bindPopup("You");
+  } else {
+    window.meMarker.setLatLng([myLat,myLng]);
   }
-}
 
-// Buttons
-document.getElementById("startBtn").addEventListener("click", ()=>{
-  const deviceId = document.getElementById("deviceId").value;
-  set(ref(db,"control/"+deviceId),{tracking:true});
-});
-document.getElementById("stopBtn").addEventListener("click", ()=>{
-  const deviceId = document.getElementById("deviceId").value;
-  set(ref(db,"control/"+deviceId),{tracking:false});
-});
-document.getElementById("replayBtn").addEventListener("click", replay);
+}, err=>console.warn(err), {enableHighAccuracy:true});
 
-// Move geofence on map click
-map.on("click", e=>{
-  targetLat = e.latlng.lat;
-  targetLng = e.latlng.lng;
-  geofence.setLatLng(e.latlng);
-});
-
-// Listen all devices
+// 📥 LOAD DEVICES
 onValue(ref(db,"tracker"), snap=>{
-  const devices = snap.val(); if(!devices) return;
-  for(let id in devices){
-    const d = devices[id]; 
-    const pos=[d.lat,d.lng];
-    if(!markers[id]){
-      markers[id] = L.marker(pos).addTo(map);
-      paths[id] = L.polyline([], {color:"red"}).addTo(map);
-      historyData[id] = [];
-    } else markers[id].setLatLng(pos);
+  const devices=snap.val();
+  if(!devices) return;
 
-    historyData[id].push(pos);
-    paths[id].setLatLngs(historyData[id]);
+  const select=document.getElementById("deviceSelect");
+  select.innerHTML="";
 
-    // Geofence check
-    const radius = parseFloat(document.getElementById("radius").value);
-    geofence.setRadius(radius*1000);
-    if(distance(targetLat,targetLng,d.lat,d.lng) < radius){
+  Object.keys(devices).forEach(id=>{
+    const opt=document.createElement("option");
+    opt.value=id;
+    opt.textContent=id;
+    select.appendChild(opt);
+  });
+
+  if(!selectedDevice) selectedDevice=select.value;
+});
+
+// 🎯 SELECT CHANGE
+document.getElementById("deviceSelect").addEventListener("change", e=>{
+  selectedDevice=e.target.value;
+});
+
+// ▶️ START / STOP
+document.getElementById("startBtn").onclick=()=>{
+  set(ref(db,"control/"+selectedDevice),{tracking:true});
+};
+document.getElementById("stopBtn").onclick=()=>{
+  set(ref(db,"control/"+selectedDevice),{tracking:false});
+};
+
+// 🔁 REPLAY
+function replay(){
+  if(!selectedDevice || !historyData[selectedDevice]) return;
+  let route=historyData[selectedDevice];
+  let i=0;
+  let interval=setInterval(()=>{
+    if(i>=route.length){clearInterval(interval);return;}
+    markers[selectedDevice].setLatLng(route[i]);
+    i++;
+  },200);
+}
+document.getElementById("replayBtn").onclick=replay;
+
+// 📡 MAIN LISTENER
+onValue(ref(db,"tracker"), snap=>{
+  const devices=snap.val();
+  if(!devices || !selectedDevice) return;
+
+  const d=devices[selectedDevice];
+  if(!d) return;
+
+  const pos=[d.lat,d.lng];
+
+  // marker
+  if(!markers[selectedDevice]){
+    markers[selectedDevice]=L.marker(pos).addTo(map);
+    historyData[selectedDevice]=[];
+  } else {
+    markers[selectedDevice].setLatLng(pos);
+  }
+
+  historyData[selectedDevice].push(pos);
+
+  // 📊 DETAILS
+  document.getElementById("details").innerHTML=`
+  🆔 ${selectedDevice}<br>
+  🟢 ${d.online ? "Online":"Offline"}<br>
+  🔋 Battery: ${d.battery || "N/A"}%<br>
+  📶 Network: ${d.network || "Unknown"}<br>
+  `;
+
+  // 🚨 RADIUS ALERT (YOUR PHONE BASED)
+  if(myLat!==null){
+    const radius=parseFloat(document.getElementById("radius").value);
+    const dist=distance(myLat,myLng,d.lat,d.lng);
+
+    if(dist < radius){
       document.getElementById("alarm").play();
-      document.getElementById("info").innerText = id+" entered geofence!";
+      document.getElementById("info").innerText=
+        "🚨 Near you: "+dist.toFixed(2)+" KM";
     }
   }
 });
 </script>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 </body>
 </html>
