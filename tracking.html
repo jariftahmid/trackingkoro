@@ -5,15 +5,26 @@
 <title>GPS Tracker Auto</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body{font-family:sans-serif;background:#111;color:white;text-align:center;margin-top:100px;}
-#status{margin-top:20px;}
-input{padding:10px;margin:5px;font-size:16px;}
+body{
+  font-family:sans-serif;
+  background:#111;
+  color:white;
+  text-align:center;
+  margin-top:100px;
+}
+#status{margin-top:20px;font-size:14px;}
+input{
+  padding:10px;
+  margin:5px;
+  font-size:16px;
+  width:200px;
+}
 </style>
 </head>
 <body>
 
 <h2>GPS Tracker Auto</h2>
-<input id="deviceId" placeholder="Device ID (default: phone1)">
+<input id="deviceId" placeholder="Device ID (auto if empty)">
 <div id="status">Initializing...</div>
 
 <script type="module">
@@ -28,62 +39,114 @@ const firebaseConfig = {
   projectId: "aura-globe-735d3",
   storageBucket: "aura-globe-735d3.firebasestorage.app",
   messagingSenderId: "964001905585",
-  appId: "1:964001905585:web:1c52a216d056cbbdf29b90",
-  measurementId: "G-B5H5N60J61"
+  appId: "1:964001905585:web:1c52a216d056cbbdf29b90"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-let deviceId = document.getElementById("deviceId").value || "phone1";
+// 🆔 AUTO DEVICE ID (persistent)
+let deviceId = localStorage.getItem("deviceId");
+if(!deviceId){
+  deviceId = "dev_" + Math.random().toString(36).substr(2,6);
+  localStorage.setItem("deviceId", deviceId);
+}
+document.getElementById("deviceId").value = deviceId;
+
+// change device id manually
 document.getElementById("deviceId").addEventListener("change", e=>{
-  deviceId = e.target.value || "phone1";
+  deviceId = e.target.value || deviceId;
+  localStorage.setItem("deviceId", deviceId);
   initControlListener();
 });
 
+// 🔋 Battery (if supported)
+let batteryLevel = "N/A";
+if(navigator.getBattery){
+  navigator.getBattery().then(b=>{
+    batteryLevel = Math.round(b.level * 100);
+    b.addEventListener("levelchange", ()=>{
+      batteryLevel = Math.round(b.level * 100);
+    });
+  });
+}
+
+// 📶 Network
+function getNetwork(){
+  const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if(!c) return "unknown";
+  return c.effectiveType || c.type;
+}
+
+// 📡 Tracking
 let watchId = null;
+
 function startTracking(){
-  if(watchId!=null) return;
-  if(!navigator.geolocation){ alert("Geolocation not supported"); return; }
+  if(watchId !== null) return;
+
+  if(!navigator.geolocation){
+    alert("Geolocation not supported");
+    return;
+  }
+
   watchId = navigator.geolocation.watchPosition(
     pos=>{
       set(ref(db,"tracker/"+deviceId),{
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         time: Date.now(),
-        online:true
+        battery: batteryLevel,
+        network: getNetwork(),
+        online: true
       });
-      document.getElementById("status").innerText = "Tracking ON: "+pos.coords.latitude+", "+pos.coords.longitude;
+
+      document.getElementById("status").innerText =
+        "🟢 Tracking\nLat: "+pos.coords.latitude.toFixed(5)+
+        "\nLng: "+pos.coords.longitude.toFixed(5);
     },
     err=>{
-      console.warn("Geolocation error:", err);
-      document.getElementById("status").innerText = "Tracking ERROR: "+err.message;
+      console.warn(err);
+      document.getElementById("status").innerText =
+        "❌ Error: "+err.message;
     },
-    { enableHighAccuracy:true }
+    {
+      enableHighAccuracy:true,
+      maximumAge:5000,
+      timeout:10000
+    }
   );
 }
+
 function stopTracking(){
-  if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
-  document.getElementById("status").innerText="Tracking OFF";
+  if(watchId !== null){
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  document.getElementById("status").innerText = "🔴 Tracking stopped";
 }
 
-// Dashboard control listener
-let controlListener = null;
+// 🎯 Dashboard control listener (FIXED)
+let unsubscribe = null;
+
 function initControlListener(){
-  if(controlListener) controlListener(); // unsubscribe old listener
+  if(unsubscribe) unsubscribe();
+
   const controlRef = ref(db,"control/"+deviceId+"/tracking");
-  controlListener = onValue(controlRef, snap=>{
+
+  unsubscribe = onValue(controlRef, snap=>{
     const val = snap.val();
+    console.log("Control:", val);
+
     if(val === true) startTracking();
     if(val === false) stopTracking();
   });
 }
 
-// Auto-start
+// 🚀 INIT
 startTracking();
 initControlListener();
 
-// Set offline when closing app
+// 🔌 Offline detect
 window.addEventListener("beforeunload", ()=>{
   update(ref(db,"tracker/"+deviceId), {online:false});
 });
