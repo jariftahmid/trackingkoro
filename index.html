@@ -1,40 +1,329 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Smart Tracker Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #000; overflow: hidden; }
-    
-    #map { height: 100vh; width: 100vw; z-index: 1; }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #000;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100vw;
+      height: 100vh;
+    }
 
     .panel {
-      position: absolute; top: 10px; left: 10px;
-      background: rgba(15, 15, 15, 0.95); padding: 15px; border-radius: 12px;
-      z-index: 1000; width: 260px; max-height: 90vh;
-      border: 1px solid #333; overflow-y: auto;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      width: 280px;
+      max-height: 92vh;
+      overflow-y: auto;
+      background: rgba(15, 15, 15, 0.95);
+      color: #fff;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid #333;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.7);
     }
 
-    label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-    
+    label {
+      display: block;
+      margin-bottom: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #aaa;
+      letter-spacing: 0.5px;
+    }
+
     select, button {
-      width: 100%; padding: 10px; margin: 5px 0 12px 0;
-      border: none; border-radius: 6px; font-size: 14px; outline: none;
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 7px;
+      font-size: 14px;
+      border: none;
+      outline: none;
     }
 
-    select { background: #222; color: #fff; border: 1px solid #444; }
-    
-    .btn-group { display: flex; gap: 5px; }
-    .btn-group button { flex: 1; margin-top: 0; }
+    select {
+      background: #222;
+      color: #fff;
+      border: 1px solid #444;
+    }
 
-    #startBtn { background: #1a73e8; color: white; font-weight: bold; }
+    button {
+      color: #fff;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #startBtn { background: #1a73e8; }
+    #stopBtn { background: #d93025; }
+    #replayBtn { background: #1e8e3e; }
+
+    #details {
+      margin-top: 8px;
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .stat {
+      color: #00d4ff;
+      font-weight: bold;
+    }
+
+    #info {
+      margin-top: 10px;
+      color: #ffc107;
+      font-size: 13px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="panel">
+    <label>Select Device</label>
+    <select id="deviceSelect">
+      <option value="">Loading...</option>
+    </select>
+
+    <label>Alert Radius</label>
+    <select id="radius">
+      <option value="0.1">100 Meter</option>
+      <option value="0.5">500 Meter</option>
+      <option value="1">1 KM</option>
+      <option value="2">2 KM</option>
+      <option value="5">5 KM</option>
+    </select>
+
+    <button id="startBtn">Start Tracking</button>
+    <button id="stopBtn">Stop Tracking</button>
+    <button id="replayBtn">Replay History</button>
+
+    <div id="details">Waiting for tracker data...</div>
+    <div id="info">Initializing...</div>
+  </div>
+
+  <div id="map"></div>
+
+  <audio id="alarm" preload="auto" loop>
+    <source src="https://www.soundjay.com/free-music_c2026/sounds/midnight-ride-01a.mp3" type="audio/mpeg">
+  </audio>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+      projectId: "YOUR_PROJECT",
+      storageBucket: "YOUR_PROJECT.firebasestorage.app",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // MAP
+    const map = L.map("map").setView([23.8103, 90.4125], 13);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap"
+    }).addTo(map);
+
+    // DATA
+    let markers = {};
+    let historyData = {};
+    let selectedDevice = null;
+    let myLat = null;
+    let myLng = null;
+    let meMarker = null;
+
+    // DISTANCE
+    function distance(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) *
+        Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // YOUR LOCATION
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          myLat = pos.coords.latitude;
+          myLng = pos.coords.longitude;
+
+          if (!meMarker) {
+            meMarker = L.marker([myLat, myLng]).addTo(map).bindPopup("You");
+          } else {
+            meMarker.setLatLng([myLat, myLng]);
+          }
+        },
+        (err) => {
+          console.warn("Geolocation error:", err);
+          document.getElementById("info").innerText = "GPS permission denied / unavailable";
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    } else {
+      document.getElementById("info").innerText = "Geolocation not supported";
+    }
+
+    // SELECT CHANGE
+    document.getElementById("deviceSelect").addEventListener("change", (e) => {
+      selectedDevice = e.target.value;
+      document.getElementById("details").innerHTML = "Loading " + selectedDevice + "...";
+    });
+
+    // START
+    document.getElementById("startBtn").onclick = () => {
+      if (!selectedDevice) return alert("Select a device first");
+      set(ref(db, "control/" + selectedDevice), { tracking: true })
+        .then(() => alert("Tracking started for " + selectedDevice))
+        .catch((err) => alert("Error: " + err.message));
+    };
+
+    // STOP
+    document.getElementById("stopBtn").onclick = () => {
+      if (!selectedDevice) return alert("Select a device first");
+      set(ref(db, "control/" + selectedDevice), { tracking: false })
+        .then(() => alert("Tracking stopped for " + selectedDevice))
+        .catch((err) => alert("Error: " + err.message));
+    };
+
+    // REPLAY
+    document.getElementById("replayBtn").onclick = () => {
+      if (!selectedDevice || !historyData[selectedDevice] || historyData[selectedDevice].length < 2) {
+        return alert("No history available for replay");
+      }
+
+      const route = historyData[selectedDevice];
+      let i = 0;
+
+      const interval = setInterval(() => {
+        if (i >= route.length) {
+          clearInterval(interval);
+          return;
+        }
+        if (markers[selectedDevice]) {
+          markers[selectedDevice].setLatLng(route[i]);
+        }
+        i++;
+      }, 200);
+    };
+
+    // MAIN LISTENER
+    onValue(ref(db, "tracker"), (snap) => {
+      const devices = snap.val();
+      const select = document.getElementById("deviceSelect");
+      const details = document.getElementById("details");
+      const info = document.getElementById("info");
+      const alarm = document.getElementById("alarm");
+
+      if (!devices) {
+        select.innerHTML = '<option value="">No devices found</option>';
+        details.innerHTML = "No tracker data found in Firebase.";
+        info.innerText = "Waiting for data...";
+        return;
+      }
+
+      const ids = Object.keys(devices);
+
+      // dropdown update
+      select.innerHTML = "";
+      ids.forEach((id) => {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = id;
+        select.appendChild(opt);
+      });
+
+      if (!selectedDevice || !ids.includes(selectedDevice)) {
+        selectedDevice = ids[0];
+      }
+      select.value = selectedDevice;
+
+      const d = devices[selectedDevice];
+      if (!d || d.lat == null || d.lng == null) {
+        details.innerHTML = "Selected device has no valid location data.";
+        return;
+      }
+
+      const pos = [d.lat, d.lng];
+
+      // marker create/update
+      if (!markers[selectedDevice]) {
+        markers[selectedDevice] = L.marker(pos).addTo(map).bindPopup(selectedDevice);
+        historyData[selectedDevice] = [];
+        map.panTo(pos);
+      } else {
+        markers[selectedDevice].setLatLng(pos);
+      }
+
+      historyData[selectedDevice].push(pos);
+
+      // details
+      details.innerHTML = `
+        🆔 Device: <span class="stat">${selectedDevice}</span><br>
+        📍 Lat: <span class="stat">${d.lat}</span><br>
+        📍 Lng: <span class="stat">${d.lng}</span><br>
+        🟢 Status: <span class="stat">${d.online ? "Online" : "Offline"}</span><br>
+        🔋 Battery: <span class="stat">${d.battery ?? "N/A"}%</span><br>
+        📶 Network: <span class="stat">${d.network ?? "Unknown"}</span>
+      `;
+
+      // distance alert
+      if (myLat !== null && myLng !== null) {
+        const radius = parseFloat(document.getElementById("radius").value);
+        const dist = distance(myLat, myLng, d.lat, d.lng);
+
+        if (dist < radius) {
+          alarm.play().catch(() => {});
+          info.innerText = "🚨 Near you: " + dist.toFixed(2) + " KM";
+          info.style.color = "red";
+        } else {
+          alarm.pause();
+          alarm.currentTime = 0;
+          info.innerText = "Distance: " + dist.toFixed(2) + " KM";
+          info.style.color = "#ffc107";
+        }
+      } else {
+        info.innerText = "Getting your location...";
+        info.style.color = "#ffc107";
+      }
+    });
+  </script>
+
+</body>
+</html>    #startBtn { background: #1a73e8; color: white; font-weight: bold; }
     #stopBtn { background: #d93025; color: white; font-weight: bold; }
     #replayBtn { background: #1e8e3e; color: white; font-weight: bold; }
 
